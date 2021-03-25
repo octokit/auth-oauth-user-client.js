@@ -1,4 +1,4 @@
-# 🚧 WORK IN PROGRESS. See [#1](https://github.com/octokit/auth-oauth-user-client.js/pull/1)
+# 🚧 WORK IN PROGRESS. See [#1](https://github.com/octokit/auth-oauth-user-client.js/pull/1) | [Preview `README.md`](https://github.com/octokit/auth-oauth-user-client.js/tree/initial-version#readme)
 
 # auth-oauth-user-client.js
 
