@@ -5,6 +5,24 @@
 [![@latest](https://img.shields.io/npm/v/@octokit/auth-oauth-user-client.svg)](https://www.npmjs.com/package/@octokit/auth-oauth-user-client)
 [![Build Status](https://github.com/octokit/auth-oauth-user-client.js/workflows/Test/badge.svg)](https://github.com/octokit/auth-oauth-user-client.js/actions?query=workflow%3ATest+branch%3Amain)
 
+<details>
+<summary>Table of contents</summary>
+
+<!-- toc -->
+
+- [Standalone usage](#standalone-usage)
+- [Usage with Octokit](#usage-with-octokit)
+- [`createOAuthUserClientAuth(options)`](#createoauthuserclientauthoptions)
+- [`auth(options)`](#authoptions)
+- [Authentication object](#authentication-object)
+- [`auth.hook(request, route, parameters)` or `auth.hook(request, options)`](#authhookrequest-route-parameters-or-authhookrequest-options)
+- [Contributing](#contributing)
+- [License](#license)
+
+<!-- tocstop -->
+
+</details>
+
 ## Standalone usage
 
 <table>
