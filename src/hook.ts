@@ -1,22 +1,41 @@
 import {
-  EndpointDefaults,
   EndpointOptions,
+  EndpointDefaults,
   OctokitResponse,
   RequestInterface,
   RequestParameters,
   Route,
 } from "@octokit/types";
-import { AuthOptions } from "./types";
+import { ClientType, ExpirationType, State } from "./types";
+import { auth } from "./auth";
+import { requiresBasicAuth } from "./requires-basic-auth";
+import errors from "./errors";
 
 type AnyResponse = OctokitResponse<any>;
 
-export async function hook(
-  options: AuthOptions,
+export async function hook<
+  Client extends ClientType,
+  Expiration extends ExpirationType
+>(
+  this: State<Client, Expiration>,
   request: RequestInterface,
   route: Route | EndpointOptions,
   parameters: RequestParameters = {}
 ): Promise<AnyResponse> {
-  // TODO: add implementation
-  //       probably something like setting the authorization header
-  return request(route, parameters);
+  const endpoint = request.endpoint.merge(
+    route as string,
+    parameters
+  ) as EndpointDefaults & { url: string };
+
+  // Do not intercept OAuth Web flow requests.
+  const oauthWebFlowUrls = /\/login\/(oauth\/access_token|device\/code)$/;
+  if (oauthWebFlowUrls.test(endpoint.url)) return request(endpoint);
+
+  // Unable to perform basic authentication since client secret is missing.
+  if (requiresBasicAuth(endpoint.url)) throw errors.basicAuthIsUnsupported;
+
+  const session = await auth.call(Object.assign({}, this, { request }));
+  const token = session?.authentication.token;
+  if (token) endpoint.headers.authorization = "token " + token;
+  return request(endpoint);
 }

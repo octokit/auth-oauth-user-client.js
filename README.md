@@ -10,10 +10,11 @@
 
 <!-- toc -->
 
+- [Backend service](#backend-service)
 - [Standalone usage](#standalone-usage)
 - [Usage with Octokit](#usage-with-octokit)
-- [`createOAuthUserClientAuth(options)`](#createoauthuserclientauthoptions)
-- [`auth(options)`](#authoptions)
+- [`createOAuthUserClientAuth(options)` or `new Octokit({auth})`](#createoauthuserclientauthoptions-or-new-octokitauth)
+- [`auth(command)`](#authcommand)
 - [Authentication object](#authentication-object)
 - [`auth.hook(request, route, parameters)` or `auth.hook(request, options)`](#authhookrequest-route-parameters-or-authhookrequest-options)
 - [Contributing](#contributing)
@@ -22,6 +23,13 @@
 <!-- tocstop -->
 
 </details>
+
+## Backend service
+
+`auth-oauth-user-client.js` requires a backend service to function.
+[`@octokit/oauth-app`](https://github.com/octokit/oauth-app.js) provides
+compatible Node.js/Express.js/Cloudflare Worker middlewares to support
+`auth-oauth-user-client.js`.
 
 ## Standalone usage
 
@@ -48,7 +56,7 @@ Node
 
 </th><td>
 
-Install with `npm install @octokit/core @octokit/auth-oauth-user-client`
+Install with `npm install @octokit/auth-oauth-user-client`
 
 ```js
 const {
@@ -62,140 +70,19 @@ const {
 
 ```js
 const auth = createOAuthUserClientAuth({
-  // default functions to to create/check/reset/refresh/delete token and to delete authorization for the app
-  async getSession(authentication) {
-    if (authentication.token) {
-      return {
-        ...authentication,
-        isSignedIn: true,
-      };
-    }
-    return { isSigned: false };
-  },
-  signIn() {
-    location.href = "/api/github/oauth/login";
-  },
-  async createToken() {
-    const code = new URL(location.href).searchParams.get("code");
-    if (!code) throw new Error("?code query parameter is not set");
-
-    // remove ?code=... from URL
-    const path =
-      location.pathname +
-      location.search.replace(/\b(code|state)=\w+/g, "").replace(/[?&]+$/, "");
-    history.pushState({}, "", path);
-
-    const response = await fetch("/api/github/oauth/token", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ code }),
-    });
-    return response.json();
-  },
-  async checkToken({ token }) {
-    return fetch("/api/github/oauth/token", {
-      headers: {
-        authorization: "token " + token,
-      },
-    }).then(
-      () => true,
-      (error) => {
-        if (error.status === 404) return false;
-        throw error;
-      }
-    );
-  },
-  async resetToken({ token }) {
-    const response = await fetch("/api/github/oauth/token", {
-      method: "patch",
-      headers: {
-        authorization: "token " + token,
-      },
-    });
-    return response.json();
-  },
-  async refreshToken({ token, refreshToken }) {
-    const response = await fetch("/api/github/oauth/refresh-token", {
-      method: "patch",
-      headers: {
-        authorization: "token " + token,
-      },
-      body: JSON.stringify({ refreshToken }),
-    });
-    return response.json();
-  },
-  async deleteToken({ token }, { offline }) {
-    if (offline) return;
-    await fetch("/api/github/oauth/token", {
-      method: "delete",
-      headers: {
-        authorization: "token " + token,
-      },
-    });
-  },
-  async deleteAuthorization({ token }) {
-    await fetch("/api/github/oauth/grant", {
-      method: "delete",
-      headers: {
-        authorization: "token " + token,
-      },
-    });
-  },
-  // persist authentication in local store
-  // set to false to disable persistance
-  authStore: {
-    async get(key) {
-      return JSON.parse(localStorage.getItem(key));
-    },
-    async set(key, authentication) {
-      localStorage.setItem(key, JSON.stringify(authentication));
-    },
-    async del(key) {
-      localStorage.removeItem(key);
-    },
-  },
-  // persist code verification state in local store
-  // set to false to disable persistance
-  stateStore: {
-    async get(key) {
-      return localStorage.getItem(key);
-    },
-    async set(key, state) {
-      localStorage.setItem(key, state);
-    },
-    async del(key) {
-      localStorage.removeItem(key);
-    },
-  },
+  clientId: "clientId123",
+  clientType: "github-app", // defaults to `"oauth-app"`
+  expirationEnabled: true, // defaults to `true` for GitHub App, `false` for OAuth App
 });
 
-// retrieve token using `createToken({ type: "getSession" })`
-// if ?code=... parameter is not set and authentication cannot be retrievd from the local store,
-// then `token` is undefined and `isSignedIn` is set to false`
-// `type` is either `app` or `oauth-app`.
-// `scopes` is only set for OAuth apps.
-// `refreshToken` and `exprisesAt` is only set for GitHub apps, only only when enabled.
-const {
-  token,
-  type,
-  isSignedIn,
-  createdAt,
-  scopes,
-  refreshToken,
-  expiresAt,
-} = await auth({
-  type: "getSession",
-});
+// Get token from local session. Returns `null` when `code` or `state` search
+// parameters is missing and no session can be fetched from [`localStorage`](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage).
+const session = await auth({ type: "getToken" });
 
-// - Sign in (redirects to OAuth authorization page): {type: "signIn"}
-// - Exchange the OAuth code for token: {type: "createToken"}
-// - Verify current token: {type: "checkToken"}
-// - Delete and invalidate token: {type: "deleteToken"}
-// - Delete without invalidation: {type: "deleteToken", offline: true}
-// - Reset a token, pass {type: "resetToken"}
-// - Revoke access for the OAuth App, pass {type: "deleteAuthorization"}
+// Use `signIn` command to redirect to GitHub when the user is not signed in.
+if (!session) await auth({ type: "signIn" });
+// `token` can be retrieved from a non-null `session`.
+else console.log(session.authentication.token);
 ```
 
 ## Usage with Octokit
@@ -241,233 +128,147 @@ const {
 const octokit = new Octokit({
   authStrategy: createOAuthUserClientAuth,
   auth: {
-    // default functions to to create/check/reset/refresh/delete token and to delete authorization for the app
-    async getSession(authentication) {
-      if (authentication.token) {
-        return {
-          ...authentication,
-          isSignedIn: true,
-        };
-      }
-      return { isSigned: false };
-    },
-    signIn() {
-      location.href = "/api/github/oauth/login";
-    },
-    async createToken() {
-      const code = new URL(location.href).searchParams.get("code");
-      if (!code) throw new Error("?code query parameter is not set");
-
-      // remove ?code=... from URL
-      const path =
-        location.pathname +
-        location.search
-          .replace(/\b(code|state)=\w+/g, "")
-          .replace(/[?&]+$/, "");
-      history.pushState({}, "", path);
-
-      const response = await octokit.request(
-        location.origin + "/api/github/oauth/token",
-        {
-          method: "POST",
-          body: JSON.stringify({ code }),
-        }
-      );
-      return response.json();
-    },
-    async checkToken() {
-      return fetch(location.origin + "/api/github/oauth/token", {}).then(
-        () => true,
-        (error) => {
-          if (error.status === 404) return false;
-          throw error;
-        }
-      );
-    },
-    async resetToken() {
-      const response = await octokit.request(
-        location.origin + "/api/github/oauth/token",
-        {
-          method: "patch",
-        }
-      );
-      return response.json();
-    },
-    async refreshToken({ refreshToken }) {
-      const response = await octokit.request(
-        location.origin + "/api/github/oauth/refresh-token",
-        {
-          method: "patch",
-          refreshToken,
-        }
-      );
-      return response.json();
-    },
-    async deleteToken(authorization, { offline }) {
-      if (offline) return;
-      await octokit.request(location.origin + "/api/github/oauth/token", {
-        method: "delete",
-      });
-    },
-    async deleteAuthorization() {
-      await octokit.request(location.origin + "/api/github/oauth/grant", {
-        method: "delete",
-      });
-    },
-    // persist authentication in local store
-    // set to false to disable persistance
-    authStore: {
-      async get(key) {
-        return JSON.parse(localStorage.getItem(key));
-      },
-      async set(key, authentication) {
-        localStorage.setItem(key, JSON.stringify(authentication));
-      },
-      async del(key) {
-        localStorage.removeItem(key);
-      },
-    },
-    // persist code verification state in local store
-    // set to false to disable persistance
-    stateStore: {
-      async get(key) {
-        return localStorage.getItem(key);
-      },
-      async set(key, state) {
-        localStorage.setItem(key, state);
-      },
-      async del(key) {
-        localStorage.removeItem(key);
-      },
-    },
+    clientId: "clientId123",
+    clientType: "github-app", // defaults to `"oauth-app"`
+    expirationEnabled: true, // defaults to `true` for GitHub App, `false` for OAuth App
   },
 });
 
-// retrieve token using `createToken({ type: "getSession" })`
-// if ?code=... parameter is not set and authentication cannot be retrievd from the local store,
-// then `token` is undefined and `isSignedIn` is set to false`
-// `type` is either `app` or `oauth-app`.
-// `scopes` is only set for OAuth apps.
-// `refreshToken` and `exprisesAt` is only set for GitHub apps, only only when enabled.
-const {
-  token,
-  type,
-  isSignedIn,
-  createdAt,
-  scopes,
-  refreshToken,
-  expiresAt,
-} = await octokit.auth({
-  type: "getSession",
-});
+const session = await octokit.auth();
 
-// - Sign in (redirects to OAuth authorization page): {type: "signIn"}
-// - Exchange the OAuth code for token: {type: "createToken"}
-// - Verify current token: {type: "checkToken"}
-// - Delete and invalidate token: {type: "deleteToken"}
-// - Delete without invalidation: {type: "deleteToken", offline: true}
-// - Reset a token, pass {type: "resetToken"}
-// - Revoke access for the OAuth App, pass {type: "deleteAuthorization"}
+// Use `signIn` command to redirect to GitHub when the user is not signed in.
+if (!session) await octokit.auth({ type: "signIn" });
+// Make GitHub API requests.
+else {
+  const { data } = await octokit.request("GET /user");
+  console.log(data);
+}
 ```
 
-## `createOAuthUserClientAuth(options)`
+## `createOAuthUserClientAuth(options)` or `new Octokit({auth})`
 
-The `createOAuthUserClientAuth` method accepts a single `options` object as argument
+The `createOAuthUserClientAuth` method accepts a single `options` object as argument:
 
-<table width="100%">
-  <thead align=left>
-    <tr>
-      <th width=150>
-        name
-      </th>
-      <th width=70>
-        type
-      </th>
-      <th>
-        description
-      </th>
-    </tr>
-  </thead>
-  <tbody align=left valign=top>
-    <tr>
-      <th>
-        <code>options.myOption</code>
-      </th>
-      <th>
-        <code>string</code>
-      </th>
-      <td>
-        <strong>Required</strong>. Description here
-      </td>
-    </tr>
-  </tbody>
-</table>
+| name                    | type                | description                                                                                                                                                                                             |
+| :---------------------- | :------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **`clientId`**          | `string`            | **`Required`**. Find **Client ID** on the app’s about page in settings.                                                                                                                                 |
+| **`clientType`**        | `string`            | Either `"oauth-app"` or `"github-app"`. Defaults to `"oauth-app"`.                                                                                                                                      |
+| **`expirationEnabled`** | `boolean`           | Defaults to `true` for GitHub App, `false` for OAuth App.                                                                                                                                               |
+| **`session`**           | `object`            | Initial session, defaults to `null`. See [session object](#session-object).                                                                                                                             |
+| **`defaultScopes`**     | `string`            | Only relevant for OAuth App. See [available scopes](https://docs.github.com/en/developers/apps/scopes-for-oauth-apps#available-scopes).                                                                 |
+| **`serviceOrigin`**     | `string`            | Defaults to `location.origin`. Required only when the `@octokit/oauth-app` Node.js/Express.js/Cloudflare middleware is deployed at a different origin.                                                  |
+| **`servicePathPrefix`** | `string`            | Defaults to `"/api/github/oauth"`. Required only when the `@octokit/oauth-app` Node.js/Express.js/Cloudflare middleware is created with custom `pathPrefix`.                                            |
+| **`sessionStore`**      | `object` or `false` | Custom store to get/set [session object](#session-object), `false` to disable session persistence. See [custom store](#custom-store).                                                                   |
+| **`stateStore`**        | `object` or `false` | Custom store to get/set [state string](https://docs.github.com/en/developers/apps/building-oauth-apps/authorizing-oauth-apps#parameters), `false` to disable state persistence.                         |
+| **`request`**           | `function`          | You can pass in your own [`@octokit/request`](https://github.com/octokit/request.js) instance. For usage with enterprise, set `baseUrl` to the API root endpoint. See [custom request](#custom-request) |
 
-## `auth(options)`
+### Custom store
 
-The async `auth()` method returned by `createOAuthUserClientAuth(options)` accepts the following options
+By default, `auth-oauth-user-client.js` uses [`localStorage`](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) to store JSON
+serialized session object and state string.
 
-<table width="100%">
-  <thead align=left>
-    <tr>
-      <th width=150>
-        name
-      </th>
-      <th width=70>
-        type
-      </th>
-      <th>
-        description
-      </th>
-    </tr>
-  </thead>
-  <tbody align=left valign=top>
-    <tr>
-      <th>
-        <code>options.myOption</code>
-      </th>
-      <th>
-        <code>string</code>
-      </th>
-      <td>
-        <strong>Required.</strong> Description here
-      </td>
-    </tr>
-  </tbody>
-</table>
+Pass `sessionStore` or `stateStore` in `createOAuthUserClientAuth(options)` (or
+`new Octokit({auth})`) to use your custom code to persist session or state.
 
-## Authentication object
+For example:
 
-The async `auth(options)` method resolves to an object with the following properties
+```js
+const sessionStore = {
+  get: async() => { /* return local session or `null` when there is no session */ }
+  set: async(session) => {
+    if (session == null) { /* delete local session */ }
+    else { /* create or update local session */ }
+  }
+}
 
-<table width="100%">
-  <thead align=left>
-    <tr>
-      <th width=150>
-        name
-      </th>
-      <th width=70>
-        type
-      </th>
-      <th>
-        description
-      </th>
-    </tr>
-  </thead>
-  <tbody align=left valign=top>
-    <tr>
-      <th>
-        <code>type</code>
-      </th>
-      <th>
-        <code>string</code>
-      </th>
-      <td>
-        <code>"myType"</code>
-      </td>
-    </tr>
-  </tbody>
-</table>
+const auth = createOAuthUserClientAuth({
+  clientId: "clientId123",
+  sessionStore
+});
+```
+
+### Custom request
+
+```js
+const { request } = require("@octokit/request");
+createOAuthAppAuth({
+  clientId: "1234567890abcdef1234",
+  request: request.defaults({
+    baseUrl: "https://ghe.my-company.com/api/v3",
+  }),
+});
+```
+
+## `auth(command)`
+
+The async `auth()` method returned by `createOAuthUserClientAuth(options)` accepts the following commands:
+
+| Command                                                                                                                                                                                                                                      | `{type: }`              | Optional Arguments                                                                                                                                        |
+| :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Sign in](https://docs.github.com/en/developers/apps/building-oauth-apps/authorizing-oauth-apps#1-request-a-users-github-identity)                                                                                                           | `"signIn"`              | <ul><li><code>login: "user"</code></li><li><code>allowSignup: false</code></li><li><code>scopes: ["repo"]</code> (only relevant for OAuth Apps)</li></ul> |
+| Get (local) token                                                                                                                                                                                                                            | `"getToken"`            | –                                                                                                                                                         |
+| [Create an app token](https://docs.github.com/en/developers/apps/building-oauth-apps/authorizing-oauth-apps#2-users-are-redirected-back-to-your-site-by-github)                                                                              | `"createToken"`         | –                                                                                                                                                         |
+| [Check a token](https://docs.github.com/en/rest/reference/apps#check-a-token)                                                                                                                                                                | `"checkToken"`          | –                                                                                                                                                         |
+| [Create a scoped access token](https://docs.github.com/en/rest/reference/apps#create-a-scoped-access-token) (for OAuth App)                                                                                                                  | `"createScopedToken"`   | –                                                                                                                                                         |
+| [Reset a token](https://docs.github.com/en/rest/reference/apps#reset-a-token)                                                                                                                                                                | `"resetToken"`          | –                                                                                                                                                         |
+| [Renewing a user token with a refresh token](https://docs.github.com/en/developers/apps/building-github-apps/reshing-user-to-server-access-tokens#renewing-a-user-token-with-a-refresh-token) (for GitHub App with token expiration enabled) | `"refreshToken"`        | –                                                                                                                                                         |
+| [Delete an app token](https://docs.github.com/en/rest/reference/apps#delete-an-app-token) (sign out)                                                                                                                                         | `"deleteToken"`         | `offline: true` (only deletes session from local session store)                                                                                           |
+| [Delete an app authorization](https://docs.github.com/en/rest/reference/apps#delete-an-app-authorization)                                                                                                                                    | `"deleteAuthorization"` | –                                                                                                                                                         |
+
+## Session object
+
+The async `auth(options)` method resolves to an object with the following properties:
+
+| property             | type     | description                                         |
+| :------------------- | :------- | :-------------------------------------------------- |
+| **`authentication`** | `object` | See [authentication object](#authentication-object) |
+
+### Authentication object
+
+There are three possible types of authentication object:
+
+1. [OAuth APP authentication token](#oauth-app-authentication-token)
+2. [GitHub APP user authentication token with expiring disabled](#github-app-user-authentication-token-with-expiring-disabled)
+3. [GitHub APP user authentication token with expiring enabled](#github-app-user-authentication-token-with-expiring-enabled)
+
+The differences are
+
+1. `scopes` is only present for OAuth Apps
+2. `refreshToken`, `expiresAt`, `refreshTokenExpiresAt` are only present for GitHub Apps, and only if token expiration is enabled
+
+### OAuth APP authentication token
+
+| name             | type               | description                                |
+| :--------------- | :----------------- | :----------------------------------------- |
+| **`type`**       | `string`           | `"token"`                                  |
+| **`tokenType`**  | `string`           | `"oauth"`                                  |
+| **`clientType`** | `string`           | `"oauth-app"`                              |
+| **`clientId`**   | `string`           | The `clientId` from the strategy options   |
+| **`token`**      | `string`           | The user access token                      |
+| **`scopes`**     | `array of strings` | array of scope names enabled for the token |
+
+### GitHub APP user authentication token with expiring disabled
+
+| name             | type     | description                              |
+| :--------------- | :------- | :--------------------------------------- |
+| **`type`**       | `string` | `"token"`                                |
+| **`tokenType`**  | `string` | `"oauth"`                                |
+| **`clientType`** | `string` | `"github-app"`                           |
+| **`clientId`**   | `string` | The `clientId` from the strategy options |
+| **`token`**      | `string` | The user access token                    |
+
+### GitHub APP user authentication token with expiring enabled
+
+| name                        | type     | description                                                                                                                                                                  |
+| :-------------------------- | :------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`type`**                  | `string` | `"token"`                                                                                                                                                                    |
+| **`tokenType`**             | `string` | `"oauth"`                                                                                                                                                                    |
+| **`clientType`**            | `string` | `"github-app"`                                                                                                                                                               |
+| **`clientId`**              | `string` | The `clientId` from the strategy options                                                                                                                                     |
+| **`token`**                 | `string` | The user access token                                                                                                                                                        |
+| **`refreshToken`**          | `string` | The refresh token                                                                                                                                                            |
+| **`expiresAt`**             | `string` | Date timestamp in [ISO 8601](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/toISOString) standard. Example: `2022-01-01T08:00:0.000Z` |
+| **`refreshTokenExpiresAt`** | `string` | Date timestamp in [ISO 8601](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/toISOString) standard. Example: `2022-01-01T08:00:0.000Z` |
 
 ## `auth.hook(request, route, parameters)` or `auth.hook(request, options)`
 
@@ -484,12 +285,7 @@ const { data: user } = await auth.hook(request, "GET /user");
 Or it can be passed as option to [`request()`](https://github.com/octokit/request.js#request).
 
 ```js
-const requestWithAuth = request.defaults({
-  request: {
-    hook: auth.hook,
-  },
-});
-
+const requestWithAuth = request.defaults({ request: { hook: auth.hook } });
 const { data: user } = await requestWithAuth("GET /user");
 ```
 
