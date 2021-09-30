@@ -131,7 +131,7 @@ export async function auth<
       } else {
         // Invoke `@octokit/oauth-app` endpoint and replace local session.
         const response = await requestOAuthApp(command.type, this.session);
-        this.session = response.data? {authentication: response.data} : null;
+        this.session = response.data ? { authentication: response.data } : null;
       }
 
       if (this.sessionStore) await this.sessionStore.set(this.session);
