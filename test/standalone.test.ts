@@ -663,4 +663,56 @@ describe("standalone tests under node environment", () => {
     expect(sessionStore.set.mock.calls.length).toEqual(1);
     expect(sessionStore.set.mock.calls[0][0]).toBeNull();
   });
+
+  it("keeps refresh token", async () => {
+    const oldSession = {
+      authentication: {
+        token: "token123",
+        refreshToken: "refreshToken123",
+        refreshTokenExpiresAt: "2000-01-03T00:00:00.000Z",
+      },
+    };
+    const newSession = { authentication: { token: "token456" } };
+
+    const sessionStore = {
+      get: jest.fn().mockResolvedValue(oldSession),
+      set: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const fetch = fetchMock
+      .sandbox()
+      .patchOnce("http://acme.com/api/github/oauth/token", newSession, {
+        headers: {
+          accept: "application/vnd.github.v3+json",
+          "user-agent": "test",
+          authorization: "token token123",
+        },
+      });
+
+    const auth = createOAuthUserClientAuth({
+      clientId: "clientId123",
+      sessionStore,
+      request: request.defaults({
+        headers: { "user-agent": "test" },
+        request: { fetch },
+      }),
+    });
+
+    expect(await auth({ type: "resetToken" })).toEqual({
+      authentication: {
+        token: "token456",
+        refreshToken: "refreshToken123",
+        refreshTokenExpiresAt: "2000-01-03T00:00:00.000Z",
+      },
+    });
+    expect(sessionStore.get.mock.calls.length).toBe(1);
+    expect(sessionStore.set.mock.calls.length).toBe(1);
+    expect(await auth()).toEqual({
+      authentication: {
+        token: "token456",
+        refreshToken: "refreshToken123",
+        refreshTokenExpiresAt: "2000-01-03T00:00:00.000Z",
+      },
+    });
+  });
 });

@@ -77,8 +77,10 @@ export async function auth<
         // Auto refresh for user-to-server token.
         const expiresAt = this.session.authentication.expiresAt;
         if (new Date(expiresAt) > new Date()) return this.session;
-        // @ts-ignore
-        return await auth.call(this, { type: "refreshToken" });
+        return await auth.call(this, { type: "refreshToken" } as Command<
+          Client,
+          Expiration
+        >);
       }
     }
 
@@ -118,6 +120,7 @@ export async function auth<
         this.session ||= await auth.call(this);
         if (!this.session) throw errors.unauthorized;
       }
+      const oldSession = this.session;
 
       // Prepare payload for `refreshToken` command.
       if (this.session && "refreshToken" in this.session.authentication) {
@@ -131,6 +134,18 @@ export async function auth<
         // Invoke `@octokit/oauth-app` endpoint and replace local session.
         const response = await requestOAuthApp(command.type, this.session);
         this.session = response.data || null;
+      }
+
+      // Some `oauth-app.js` endpoints (such as `resetToken`) do not (and can
+      // not) return `refreshToken`. Original `refreshToken` and
+      // `refreshTokenExpiresAt` are kept to `refreshToken` later.
+      if (oldSession && "refreshToken" in oldSession.authentication) {
+        if (this.session && !("refreshToken" in this.session.authentication))
+          Object.assign(this.session.authentication, {
+            refreshToken: oldSession.authentication.refreshToken,
+            refreshTokenExpiresAt:
+              oldSession.authentication.refreshTokenExpiresAt,
+          });
       }
 
       if (this.sessionStore) await this.sessionStore.set(this.session);
