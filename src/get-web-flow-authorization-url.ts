@@ -9,12 +9,14 @@ export function getWebFlowAuthorizationUrl<Client extends ClientType>(
   return OAuthAuthorizationURL.oauthAuthorizationUrl(options);
 }
 
-export type GetWebFlowAuthorizationUrlOptions<Client extends ClientType> =
-  Client extends OAuthApp
-    ? OAuthAuthorizationURL.OAuthAppOptions
-    : OAuthAuthorizationURL.GitHubAppOptions;
+export type GetWebFlowAuthorizationUrlOptions<
+  Client extends ClientType
+> = Client extends OAuthApp
+  ? OAuthAuthorizationURL.OAuthAppOptions
+  : OAuthAuthorizationURL.GitHubAppOptions;
 
-export type GetWebFlowAuthorizationUrlResult<Client extends ClientType> =
-  Client extends OAuthApp
-    ? OAuthAuthorizationURL.OAuthAppResult
-    : OAuthAuthorizationURL.GitHubAppResult;
+export type GetWebFlowAuthorizationUrlResult<
+  Client extends ClientType
+> = Client extends OAuthApp
+  ? OAuthAuthorizationURL.OAuthAppResult
+  : OAuthAuthorizationURL.GitHubAppResult;
