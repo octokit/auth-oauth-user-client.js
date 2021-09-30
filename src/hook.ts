@@ -35,7 +35,7 @@ export async function hook<
   if (requiresBasicAuth(endpoint.url)) throw errors.basicAuthIsUnsupported;
 
   const session = await auth.call(Object.assign({}, this, { request }));
-  const token = session?.authentication.token;
+  const token = session ? session.authentication.token : session;
   if (token) endpoint.headers.authorization = "token " + token;
   return request(endpoint);
 }

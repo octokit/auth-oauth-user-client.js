@@ -30,7 +30,7 @@ export async function auth<
   ) => {
     const [method, path] = oauthAppEndpoints[command].split(" ");
     const options = Object.assign({ method, headers: {} }, payload);
-    const token = session?.authentication.token;
+    const token = session ? session.authentication.token : undefined;
     if (token) options.headers.authorization = "token " + token;
     const route = this.serviceOrigin + this.servicePathPrefix + path;
     return await this.request(route, options);
@@ -55,7 +55,7 @@ export async function auth<
       } as GetWebFlowAuthorizationUrlOptions<Client>;
 
       if (options.clientType === "oauth-app") {
-        options.scopes = command.scopes ?? this.defaultScopes;
+        options.scopes = command.scopes ? this.defaultScopes : command.scopes;
       }
 
       const { url } = getWebFlowAuthorizationUrl(options);
@@ -71,7 +71,8 @@ export async function auth<
       const code = url.searchParams.get("code");
       const receivedState = url.searchParams.get("state");
       if (!code || !receivedState) {
-        if (this.sessionStore) this.session ??= await this.sessionStore.get();
+        if (this.sessionStore && !this.session)
+          this.session = await this.sessionStore.get();
         if (!this.session) return null;
         if (!("expiresAt" in this.session.authentication)) return this.session;
         // Auto refresh for user-to-server token.
@@ -133,7 +134,7 @@ export async function auth<
       } else {
         // Invoke `@octokit/oauth-app` endpoint and replace local session.
         const response = await requestOAuthApp(command.type, this.session);
-        this.session = response.data || null;
+        this.session = response.data ? { authentication: response.data } : null;
       }
 
       // Some `oauth-app.js` endpoints (such as `resetToken`) do not (and can
