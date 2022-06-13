@@ -1,0 +1,7 @@
+{
+  "importMap": "./import_map.json",
+  "compilerOptions": {
+    "exactOptionalPropertyTypes": true,
+    "lib": ["deno.ns", "dom"]
+  }
+}
